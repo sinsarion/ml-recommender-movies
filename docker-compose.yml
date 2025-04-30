@@ -1,0 +1,77 @@
+services:
+
+  # Кеш Redis
+  redis:
+    image: redis/redis-stack-server:6.2.6-v17
+    container_name: redis
+    expose:
+      - "6379"
+    ports:
+      - "6379:6379"
+    restart: always
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # БД postgres
+  ml-db:
+    image: postgres:17
+    container_name: ml-db
+    expose:
+      - "5432"
+    ports:
+      - "5432:5432"
+    restart: always
+    shm_size: 128mb
+    env_file:
+      - ./.env
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    volumes:
+      - ./db_structure.sql:/docker-entrypoint-initdb.d/init.sql
+      - ml_postgres_data:/var/lib/postgresql/data
+
+  # БД mongo, содержащая лайки, рецензии пользователей
+  ml-mongodb:
+    container_name: ml-mongodb
+    image: mongo:8.0
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: secret
+    ports:
+      - "27017:27017"
+    expose:
+      - "27017"
+    volumes:
+      - ml_mongo_data:/data/db
+
+  # ML API сервиса рекомендаций
+  ml-api:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+    container_name: ml-api
+    expose:
+      - "8035"
+    ports:
+      - "8035:8035"
+    depends_on:
+      ml-db:
+        condition: service_started
+      ml-mongodb:
+        condition: service_started
+      redis:
+        condition: service_started
+    env_file:
+      - ./.env
+    restart: always
+
+volumes:
+  ml_postgres_data:
+  ml_mongo_data:
